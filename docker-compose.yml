@@ -1,0 +1,155 @@
+version: '3.8'
+
+services:
+  # Микросервис на Python
+  backend:
+    build: ./backend
+    container_name: file-microservice
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - S3_SECRET_KEY=${MINIO_SECRET_KEY}
+      - S3_BUCKET=${S3_BUCKET}
+      - USER_SERVICE_URL=http://user-service:8002
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - minio
+    networks:
+      - microservice-network
+  
+  # Микросервис пользователей
+  user-service:
+    build: ./user-service
+    container_name: user-microservice
+    restart: unless-stopped
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-apppassword}@postgres:5432/${POSTGRES_DB:-usersdb}
+      - SECRET_KEY=${JWT_SECRET_KEY:-your-secret-key-change-me}
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      - postgres
+      - kafka
+    networks:
+      - microservice-network
+
+  # S3-совместимое хранилище (MinIO)
+  minio:
+    image: minio/minio:latest
+    container_name: s3-storage
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Web консоль
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD}
+    volumes:
+      - ./minio-data:/data
+    networks:
+      - microservice-network
+
+  # Обратный прокси (Nginx)
+  nginx:
+    image: nginx:alpine
+    container_name: gateway
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"     
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./logs/nginx:/var/log/nginx
+    depends_on:
+      - backend
+    networks:
+      - microservice-network
+      
+  # PostgreSQL - база данных пользователей
+  postgres:
+    image: postgres:15-alpine
+    container_name: user-database
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-appuser}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-apppassword}
+      POSTGRES_DB: ${POSTGRES_DB:-usersdb}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - microservice-network
+      
+  # Zookeeper (нужен для Kafka)
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    networks:
+      - microservice-network
+    
+  # Event Logger - слушатель событий Kafka
+  event-logger:
+    build: ./event-logger
+    container_name: event-logger
+    restart: unless-stopped
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    depends_on:
+      - kafka
+    networks:
+      - microservice-network 
+      
+  # Apache Kafka - брокер сообщений
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: message-broker
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    ports:
+      - "9092:9092"
+    networks:
+      - microservice-network
+
+  # Kafka UI - веб-интерфейс для просмотра сообщений
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      - kafka
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    ports:
+      - "8080:8080"
+    networks:
+      - microservice-network
+      
+networks:
+  microservice-network:
+    driver: bridge
+
+volumes:
+  minio-data:
+  postgres-data:
