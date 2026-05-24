@@ -9,7 +9,6 @@ from botocore.exceptions import ClientError
 import uuid
 from typing import Optional
 import httpx
-from kafka import KafkaProducer
 import asyncio
 from datetime import datetime
 
@@ -38,25 +37,6 @@ s3_client = boto3.client(
 # User Service URL (для проверки токена)
 USER_SERVICE_URL = os.getenv('USER_SERVICE_URL', 'http://user-service:8002')
 
-# Kafka
-KAFKA_BOOTSTRAP_SERVERS = os.getenv('KAFKA_BOOTSTRAP_SERVERS', 'kafka:9092')
-
-# Kafka Producer
-kafka_producer = None
-
-def get_kafka_producer():
-    global kafka_producer
-    if kafka_producer is None:
-        try:
-            kafka_producer = KafkaProducer(
-                bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS,
-                value_serializer=lambda v: json.dumps(v).encode('utf-8')
-            )
-            logger.info("Kafka producer connected")
-        except Exception as e:
-            logger.warning(f"Kafka producer not available: {e}")
-    return kafka_producer
-
 async def verify_token(token: str) -> dict:
     """Проверка JWT токена через User Service"""
     async with httpx.AsyncClient(timeout=5.0) as client:
@@ -68,8 +48,6 @@ async def verify_token(token: str) -> dict:
             return response.json()
         else:
             raise HTTPException(status_code=401, detail="Invalid or expired token")
-
-
 
 @app.on_event("startup")
 async def startup_event():
@@ -120,23 +98,6 @@ async def upload_file(
         )
         
         logger.info(f"File uploaded: {unique_filename} by {user_info.get('username')}")
-        
-        # 4. Отправка события в Kafka (асинхронно)
-        kafka_producer = get_kafka_producer()
-        if kafka_producer:
-            try:
-                kafka_producer.send('file.uploaded', {
-                    'file_id': unique_filename,
-                    'original_filename': file.filename,
-                    'size_bytes': file.size,
-                    'uploaded_by': user_info.get('username'),
-                    'user_id': user_info.get('id'),
-                    'timestamp': datetime.utcnow().isoformat()
-                })
-                kafka_producer.flush()
-                logger.info(f"Event sent to Kafka: {unique_filename}")
-            except Exception as e:
-                logger.warning(f"Failed to send Kafka event: {e}")
         
         return JSONResponse(
             status_code=201,
