@@ -118,21 +118,9 @@ services:
     ports:
       - "2181:2181"
     networks:
-      - microservice-network
-    
-  # Event Logger - слушатель событий Kafka
-  event-logger:
-    build: ./event-logger
-    container_name: event-logger
-    restart: unless-stopped
-    environment:
-      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
-    depends_on:
-      - kafka
-    networks:
       - microservice-network 
       
-  # Apache Kafka - брокер сообщений
+  # Kafka
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: message-broker
@@ -152,7 +140,7 @@ services:
     networks:
       - microservice-network
 
-  # Kafka UI - веб-интерфейс для просмотра сообщений
+  # Kafka UI 
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
