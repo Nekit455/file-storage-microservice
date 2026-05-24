@@ -139,6 +139,7 @@ services:
       - "9092:9092"
     networks:
       - microservice-network
+    mem_limit: 512m 
 
   # Kafka UI 
   kafka-ui:
