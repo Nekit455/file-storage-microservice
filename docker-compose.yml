@@ -1,7 +1,7 @@
 version: '3.8'
 
 services:
-  # Микросервис на Python
+  # Микросервис загрузки файлов
   backend:
     build: ./backend
     container_name: file-microservice
@@ -21,7 +21,27 @@ services:
       - minio
     networks:
       - microservice-network
-  
+      
+  backend-1:
+    build: ./backend
+    container_name: file-microservice
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    environment:
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - S3_SECRET_KEY=${MINIO_SECRET_KEY}
+      - S3_BUCKET=${S3_BUCKET}
+      - USER_SERVICE_URL=http://user-service:8002
+      - KAFKA_BOOTSTRAP_SERVERS=kafka:9092
+    volumes:
+      - ./logs:/app/logs
+    depends_on:
+      - minio
+    networks:
+      - microservice-network
+      
   # Микросервис пользователей
   user-service:
     build: ./user-service
