@@ -119,7 +119,8 @@ services:
       - "2181:2181"
     networks:
       - microservice-network 
-      
+    mem_limit: 256m
+          
   # Kafka
   kafka:
     image: confluentinc/cp-kafka:7.4.0
