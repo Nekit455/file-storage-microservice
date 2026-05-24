@@ -24,7 +24,7 @@ services:
       
   backend-1:
     build: ./backend
-    container_name: file-microservice
+    container_name: file-microservice-1
     restart: unless-stopped
     ports:
       - "8001:8000"
